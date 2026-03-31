@@ -22,14 +22,14 @@ except ImportError:
 class HindiTranslator:
     """Translates English text to Hindi using IndicTrans2."""
     
-    def __init__(self, device='cpu'):
+    def __init__(self, device=None):
         """
         Initialize the IndicTrans2 translation model
         
         Args:
-            device: 'cpu' or 'cuda' (we use CPU for broad compatibility)
+            device: 'cpu' or 'cuda' (defaults to 'cuda' if available)
         """
-        self.device = device
+        self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = "ai4bharat/indictrans2-en-indic-dist-200M"
         self.hf_token = os.getenv("HF_TOKEN")
         
@@ -129,14 +129,14 @@ def translate_to_hindi(simplified_text: str) -> str:
     global translator
     
     if 'translator' not in globals():
-        translator = HindiTranslator(device='cpu')
+        translator = HindiTranslator()
     
     return translator.translate_to_hindi(simplified_text)
 
 
 if __name__ == '__main__':
     # Test the translation module
-    translator = HindiTranslator(device='cpu')
+    translator = HindiTranslator()
     
     test_texts = [
         "The government launched a new health program for citizens.",
