@@ -40,3 +40,6 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+
+FLOW_DETAILS.md
