@@ -5,6 +5,7 @@ Full end-to-end multilingual text simplification and translation system
 
 from simplify import TextSimplifier
 from translate import HindiTranslator
+import torch
 
 
 class TextSimplificationPipeline:
@@ -85,7 +86,9 @@ def main():
     """Main execution function"""
     
     # Initialize pipeline
-    pipeline = TextSimplificationPipeline(device='cpu')
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Selected runtime device preference: {device}")
+    pipeline = TextSimplificationPipeline(device=device)
     
     print("\n" + "="*70)
     print("INTERACTIVE MODE")

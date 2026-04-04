@@ -41,5 +41,29 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Model/runtime caches and local artifacts
+unsloth_compiled_cache/
+*.log
+
+# Training outputs (if generated inside this repo)
+outputs/
+checkpoints/
+checkpoint-*/
+
+# Large model artifacts (keep explicit files only when intended)
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Keep bundled adapter files needed by runtime
+!model/
+!model/simplifier-4090/
+!model/simplifier-4090/adapter_model.safetensors
+!model/simplifier-4090/adapter_config.json
+!model/simplifier-4090/tokenizer.json
+!model/simplifier-4090/tokenizer_config.json
+!model/simplifier-4090/README.md
+
 
 FLOW_DETAILS.md
