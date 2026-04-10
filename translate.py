@@ -135,54 +135,5 @@ class HindiTranslator:
         postprocessed = self.ip.postprocess_batch(generated, lang=tgt_lang)
         return self._clean_output(postprocessed[0])
     
-    def translate_to_hindi(self, simplified_text: str) -> str:
-        """
-        Translate simplified English text to Hindi
-        
-        Args:
-            simplified_text: Simplified English text to translate
-        
-        Returns:
-            Hindi translation
-        """
-        
-        return self.translate(simplified_text, target_language="Hindi")
 
 
-def translate_to_hindi(simplified_text: str) -> str:
-    """
-    Standalone function to translate text to Hindi
-    Creates a global translator instance for reuse
-    
-    Args:
-        simplified_text: Simplified English text to translate
-    
-    Returns:
-        Hindi translation
-    """
-    global translator
-    
-    if 'translator' not in globals():
-        translator = HindiTranslator()
-    
-    return translator.translate_to_hindi(simplified_text)
-
-
-if __name__ == '__main__':
-    # Test the translation module
-    translator = HindiTranslator()
-    
-    test_texts = [
-        "The government launched a new health program for citizens.",
-        "Modern technology has changed how we communicate and work."
-    ]
-    
-    print("\n" + "="*70)
-    print("ENGLISH TO HINDI TRANSLATION TEST")
-    print("="*70)
-    
-    for i, text in enumerate(test_texts, 1):
-        print(f"\nExample {i}:")
-        print(f"English: {text}")
-        hindi = translator.translate_to_hindi(text)
-        print(f"Hindi:   {hindi}")

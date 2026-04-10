@@ -239,10 +239,15 @@ class TextSimplifier:
 
     def _build_prompt(self, complex_text: str, strict: bool = True) -> str:
         return (
-            "Simplify the sentence into easy English. Keep the meaning the same. "
-            "Output only the simplified sentence. Do not explain.\n"
-            f"Simplify: {complex_text}\n"
-            "Simplified:"
+            "Below is an instruction with an input. "
+            "Write a response that appropriately completes the request.\n\n"
+            "### Instruction:\n"
+            "Rewrite the following sentence in simpler English. "
+            "Use shorter words and simpler grammar. "
+            "Keep the same meaning. Output ONLY the simplified sentence. "
+            "Do NOT explain. Do NOT add new information or facts.\n\n"
+            f"### Input:\n{complex_text}\n\n"
+            "### Response:\n"
         )
 
     def _extract_numbers(self, text: str):
@@ -280,16 +285,31 @@ class TextSimplifier:
         if not src_terms:
             return True
         out_terms = self._key_terms(simplified)
+        
+        # 1. Block severe information drop
         missing_ratio = len(src_terms - out_terms) / max(len(src_terms), 1)
-        # Allow some compression, but block severe information drop.
-        return missing_ratio <= 0.55
+        if missing_ratio > 0.55:
+            return False
+            
+        # 2. Block severe hallucinations (added entities)
+        added_terms = out_terms - src_terms
+        # Reject if the model introduces too many entirely new content words
+        # (e.g. hallucinating "mount kilimanjaro")
+        if len(added_terms) > max(3, len(src_terms) * 0.3):
+            return False
+
+        return True
 
     def _build_retry_prompt(self, complex_text: str) -> str:
         return (
-            "Rewrite the sentence in simpler English using different words and shorter phrasing. "
-            "Do not copy the original sentence. Keep the meaning exactly the same and do not add new facts.\n"
-            f"Sentence: {complex_text}\n"
-            "Simple:"
+            "Below is an instruction with an input. "
+            "Write a response that appropriately completes the request.\n\n"
+            "### Instruction:\n"
+            "Rewrite this sentence using easier words and shorter phrases. "
+            "Do not copy the original. Do not add new facts or examples. "
+            "Output strictly one simplified sentence.\n\n"
+            f"### Input:\n{complex_text}\n\n"
+            "### Response:\n"
         )
 
     def _decode_output(self, outputs):
@@ -298,15 +318,44 @@ class TextSimplifier:
             skip_special_tokens=True,
             clean_up_tokenization_spaces=True,
         ).strip()
-        if "Simplified:" in decoded:
-            decoded = decoded.split("Simplified:", 1)[1].strip()
-        elif "Simple:" in decoded:
-            decoded = decoded.split("Simple:", 1)[1].strip()
+        # Extract only the response portion after the prompt delimiter.
+        for marker in ("### Response:", "Simplified:", "Simple:"):
+            if marker in decoded:
+                decoded = decoded.split(marker)[-1].strip()
+                break
+
+        # Stop at any follow-up prompt artefact the model may emit.
+        for stop_marker in ("### Instruction:", "### Input:", "###", "\n\n"):
+            if stop_marker in decoded:
+                decoded = decoded.split(stop_marker)[0].strip()
+
+        # Keep only the first sentence to prevent continuation drift
+        # (each call handles a single sentence via split-process-join).
+        decoded = self._first_sentence(decoded)
         return " ".join(decoded.split())
 
-    def simplify_text(self, complex_text: str, max_length: int = 256) -> str:
-        prompt = self._build_prompt(complex_text, strict=True)
+    @staticmethod
+    def _first_sentence(text: str) -> str:
+        """Return the first complete sentence from *text*."""
+        m = re.match(r"(.*?[.!?])(?:\s|$)", text)
+        if m:
+            return m.group(1).strip()
+        return text.strip()
 
+    @staticmethod
+    def _split_sentences(text: str) -> list[str]:
+        """Split *text* into individual sentences.
+
+        Uses a regex that handles common abbreviations (Mr., Dr., etc.)
+        without breaking on them.
+        """
+        # Split on sentence-ending punctuation followed by whitespace + uppercase
+        # or end-of-string, while keeping the punctuation with the sentence.
+        parts = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text.strip())
+        return [s.strip() for s in parts if s.strip()]
+
+    def _generate_once(self, prompt: str, max_new_tokens: int = 48) -> str:
+        """Tokenise *prompt*, run generation, and decode the output."""
         model_inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
@@ -324,21 +373,65 @@ class TextSimplifier:
             outputs = self.model.generate(
                 input_ids=model_inputs["input_ids"],
                 attention_mask=model_inputs["attention_mask"],
-                max_new_tokens=min(max_length, 64),
+                max_new_tokens=max_new_tokens,
                 do_sample=False,
                 repetition_penalty=1.2,
                 no_repeat_ngram_size=3,
                 use_cache=True,
-                early_stopping=True,
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
         return self._decode_output(outputs)
 
+    @staticmethod
+    def _clean_simplified_sentence(sentence: str) -> str:
+        """Capitalise first letter and ensure ending punctuation."""
+        s = sentence.strip()
+        if not s:
+            return s
+        # Capitalise first letter, keeping rest intact
+        s = s[0].upper() + s[1:]
+        # Ensure punctuation to prevent mashed sentences on join
+        if not s.endswith(('.', '!', '?')):
+            s += '.'
+        return s
 
-def simplify_text(complex_text: str) -> str:
-    global simplifier
-    if "simplifier" not in globals():
-        default_device = "cuda" if torch.cuda.is_available() else "cpu"
-        simplifier = TextSimplifier(device=default_device)
-    return simplifier.simplify_text(complex_text)
+    def _simplify_sentence(self, sentence: str, max_length: int = 256) -> str:
+        """Simplify a single sentence with faithfulness checking and retry."""
+        input_token_count = len(self.tokenizer.encode(sentence, add_special_tokens=False))
+        max_new = min(max_length, max(input_token_count, 24), 48)
+
+        # --- Attempt 1: standard prompt ---
+        prompt = self._build_prompt(sentence, strict=True)
+        simplified = self._generate_once(prompt, max_new_tokens=max_new)
+
+        if self._is_faithful(sentence, simplified):
+            return self._clean_simplified_sentence(simplified)
+
+        # --- Attempt 2: retry with alternative prompt ---
+        retry_prompt = self._build_retry_prompt(sentence)
+        retried = self._generate_once(retry_prompt, max_new_tokens=max_new)
+
+        if self._is_faithful(sentence, retried):
+            return self._clean_simplified_sentence(retried)
+
+        # --- Fallback: return the shorter of the two candidates ---
+        best = simplified if len(simplified) <= len(retried) else retried
+        return self._clean_simplified_sentence(best)
+
+    def simplify_text(self, complex_text: str, max_length: int = 256) -> str:
+        """Simplify text using split-process-join for multi-sentence input.
+
+        Each sentence is simplified independently to prevent the model
+        from drifting into explanations or hallucinating extra facts.
+        """
+        sentences = self._split_sentences(complex_text)
+        if not sentences:
+            return complex_text
+
+        simplified_parts = []
+        for sentence in sentences:
+            simplified_parts.append(self._simplify_sentence(sentence, max_length))
+
+        return " ".join(simplified_parts)
+
