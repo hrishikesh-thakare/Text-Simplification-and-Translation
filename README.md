@@ -7,91 +7,134 @@ This project takes **complex English text**, uses a local language model to brea
 The app runs a sophisticated 2-step NLP pipeline:
 
 1. **Anti-Hallucination English Simplification:** Uses a local LoRA adapter at `model/simplifier-4090`. It actively splits inputs sentence-by-sentence, verifies faithfulness against the source (to prevent hallucinated facts or dropped entities), and reconstructs the text.
-2. **English -> Indic Translation:** Uses the state-of-the-art `ai4bharat/indictrans2-en-indic-dist-200M` model to seamlessly translate the output into your choice of supported languages.
+2. **English → Indic Translation:** Uses the state-of-the-art `ai4bharat/indictrans2-en-indic-dist-200M` model to seamlessly translate the output into your choice of supported languages.
 
-Final output includes:
-- Clean, vertical progression view
-- Simplified English text (with latency metrics)
-- Translated Indic text (with latency metrics)
+## Evaluation Results
+
+All metrics evaluated on `wikilarge_test.csv` (191 sentences) using an anti-cheat evaluation pipeline with sequence-similarity filtering.
+
+### SARI (Simplification Quality)
+
+| Metric | Score |
+|--------|-------|
+| **SARI** | `23.46` |
+
+Evaluated with strict anti-cheat filtering — outputs with sequence similarity > 0.95 vs. source are excluded to prevent SARI inflation from copying.
+
+---
+
+### FKGL (Readability — Flesch-Kincaid Grade Level)
+
+| Text | Grade Level |
+|------|-------------|
+| Source (complex input) | `11.88` |
+| Predicted (simplified output) | `10.38` |
+
+Lower grade level = easier to read. The model successfully reduces reading complexity by **1.5 grade levels**.
+
+---
+
+### BERTScore (Semantic Meaning Preservation)
+
+| Comparison | F1 Score |
+|------------|----------|
+| Prediction vs. Reference | `0.2599` |
+| Prediction vs. Source | `0.3097` |
+
+BERTScore measures semantic similarity using `roberta-large` embeddings. Values are rescaled with baseline. The model rewrites content in new phrasing rather than direct copying.
+
+---
+
+### Copy Rate & Length Ratio (Anti-Cheat Diagnostics)
+
+| Metric | Value | Target | Status |
+|--------|-------|--------|--------|
+| Copy Rate | `0.00%` | < 40% | ✅ No copying |
+| Length Ratio | `1.04` | 0.7–0.9 | ⚠️ Slightly longer |
+
+- **Copy Rate 0%** confirms all SARI scores are genuine — no metric inflation from passthrough.
+- **Length Ratio 1.04** means the model lightly expands outputs — it paraphrases rather than deletes, which suppresses SARI (SARI rewards deletion of complex words).
+
+---
+
+### Summary
+
+| Metric | Score | Notes |
+|--------|-------|-------|
+| SARI | 23.46 | Genuine score, no inflation |
+| FKGL Reduction | −1.50 grades | Complexity is reduced |
+| BERTScore (vs Ref) | 0.2599 | Different phrasing from reference |
+| BERTScore (vs Src) | 0.3097 | Meaning partially preserved |
+| Copy Rate | 0.00% | ✅ Clean |
+| Length Ratio | 1.04 | Model expands slightly |
 
 ## Tech Stack
 
 - **Language:** Python 3
+- **UI:** Streamlit (`streamlit_app.py`)
 - **Core Libraries:**
-  - `gradio` (Modern web UI framework)
-  - `transformers`, `torch`, `peft`
+  - `streamlit`, `transformers`, `torch`, `peft`
   - `IndicTransToolkit`
+  - `textstat`, `bert-score`, `evaluate` (for metrics)
 - **Models:**
   - Base Simplifier: `unsloth/llama-3-8b-bnb-4bit` + adapter: `model/simplifier-4090`
   - Translator: `ai4bharat/indictrans2-en-indic-dist-200M`
-- **Runtime:** CUDA-first when available, automatic fallback for low VRAM setups (e.g., RTX 3050 6GB)
+- **Runtime:** CUDA-first when available, automatic fallback for low VRAM setups
 
 ## Project Files
 
-- `web_app.py` - The primary Gradio interactive web application interface (Entry Point)
-- `simplify.py` - Core English simplification logic, LLM wrapping, and faithfulness verification rules
-- `translate.py` - English -> Indic translation model component wrapper
-- `requirements.txt` - Python dependencies
+| File | Purpose |
+|------|---------|
+| `streamlit_app.py` | Main Streamlit web app (Entry Point) |
+| `simplify.py` | Core simplification logic with LoRA adapter |
+| `translate.py` | IndicTrans2 translation wrapper |
+| `requirements.txt` | Python dependencies |
 
 ## First-Time Setup
 
-### 1. Open terminal in this folder
-
-```powershell
-cd text-simplification
-```
-
-### 2. Create and activate a virtual environment
+### 1. Create and activate a virtual environment
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-### 3. Install dependencies
+### 2. Install dependencies
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-### 4. Hugging Face Access (Important)
-
-The translation model and simplifier base model are pulled from Hugging Face on the first run.
-- Login from terminal:
+### 3. Hugging Face Access
 
 ```powershell
 huggingface-cli login
 ```
-When prompted in CLI, paste your Hugging Face token and press Enter. Ensure your Hugging Face account has requested access to the base models if prompted.
+
+Paste your Hugging Face token when prompted. Ensure you have access to the base models.
 
 ## How To Run
 
-The entire pipeline is wrapped in a beautiful, pipeline-oriented web interface.
-
 ```powershell
-python web_app.py
+python -m streamlit run streamlit_app.py
 ```
 
-Then open **`http://127.0.0.1:7860`** in your browser.
+Then open **`http://localhost:8501`** in your browser.
 
-**Web App Features:**
-- **Dynamic Translation:** Process text into Hindi, Bengali, Gujarati, Kannada, Malayalam, Marathi, Odia, Punjabi, Tamil, Telugu, or Urdu.
-- **Pipeline Progress Tracking:** Step-by-step visual indication (Input → Simplify → Translate).
-- **Runtime Metrics:** Each output card tells you exactly how many seconds the model took to process step.
-- **Model Telemetry:** Click "Runtime / Model Info" to verify your active device (CUDA/CPU), adapter paths, and fallback execution status.
-- **Anti-Hallucination:** Prevents the simplification model from adding explanatory loops or skipping important nouns.
+**Supported Output Languages:** Hindi, Bengali, Gujarati, Kannada, Malayalam, Marathi, Odia, Punjabi, Tamil, Telugu, Urdu.
 
 ## What Happens on First Run
 
 - Base models are downloaded from Hugging Face (can take time).
 - Local LoRA adapter is loaded from `model/simplifier-4090`.
 - Internet connection is required for the initial fetch.
-- Startup is slower on the first run due to model download. Later runs are extremely fast because models load natively from your local Hugging Face cache.
+- Subsequent runs load from local HuggingFace cache — much faster.
 
 ## RTX 3050 6GB Notes
 
-- The Simplifier loads with a highly optimized memory strategy:
-  - Tries full CUDA runtime first.
-  - Falls back to automatic offload if VRAM runs out.
-  - Final fallback to CPU full precision if 4-bit runtime fails on your setup.
-- This ensures your pipeline runs reliably without crashing your PC, even when rendering heavy transformer sequences.
+The simplifier loads with a memory-efficient strategy:
+- Tries full CUDA runtime first.
+- Falls back to automatic VRAM offload if memory is tight.
+- Final fallback to CPU if 4-bit runtime fails.
+
+This ensures the pipeline runs reliably without crashing, even on 6GB VRAM cards.

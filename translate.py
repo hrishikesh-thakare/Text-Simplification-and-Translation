@@ -28,7 +28,7 @@ except Exception:
             return texts
 
 
-class HindiTranslator:
+class IndicTranslator:
     """Translates English text to Indic languages using IndicTrans2."""
 
     LANGUAGE_MAP = {
