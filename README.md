@@ -17,15 +17,15 @@ All metrics are evaluated on `wikilarge_test.csv` (191 sentences). The main prod
 
 ### Runtime Baseline (Original Path)
 
-| Metric | Value |
-|--------|-------|
-| SARI | `23.46` |
-| FKGL (Source -> Predicted) | `11.88 -> 10.38` |
-| FRE (Source -> Predicted) | `44.71 -> 54.53` |
-| BERTScore F1 (vs Reference) | `0.2599` |
-| BERTScore F1 (vs Source) | `0.3097` |
-| Copy Rate (>0.95 similarity) | `0.00%` |
-| Length Ratio | `1.04` |
+| Metric                       | Value            |
+| ---------------------------- | ---------------- |
+| SARI                         | `23.46`          |
+| FKGL (Source -> Predicted)   | `11.88 -> 10.38` |
+| FRE (Source -> Predicted)    | `44.71 -> 54.53` |
+| BERTScore F1 (vs Reference)  | `0.2599`         |
+| BERTScore F1 (vs Source)     | `0.3097`         |
+| Copy Rate (>0.95 similarity) | `0.00%`          |
+| Length Ratio                 | `1.04`           |
 
 ### Runtime vs Quantized GGUF
 
@@ -36,14 +36,14 @@ The following metrics are computed for the two practical paths used on this mach
 
 The full merged model path is intentionally excluded from this comparison due to high latency and poor practicality on 6GB-class GPUs.
 
-| Metric | Original Runtime | Quantized GGUF |
-|--------|------------------|----------------|
-| FKGL (predicted, lower is simpler) | 10.38 | 10.71 |
-| FRE (predicted, higher is easier) | 54.53 | 48.92 |
-| BERTScore F1 vs Reference | 0.2599 | 0.6520 |
-| BERTScore F1 vs Source | 0.3097 | 0.8915 |
-| Copy Rate (>0.95 similarity) | 0.00% | 50.79% |
-| Length Ratio | 1.04 | 0.89 |
+| Metric                             | Original Runtime | Quantized GGUF |
+| ---------------------------------- | ---------------- | -------------- |
+| FKGL (predicted, lower is simpler) | 10.38            | 10.71          |
+| FRE (predicted, higher is easier)  | 54.53            | 48.92          |
+| BERTScore F1 vs Reference          | 0.2599           | 0.6520         |
+| BERTScore F1 vs Source             | 0.3097           | 0.8915         |
+| Copy Rate (>0.95 similarity)       | 0.00%            | 50.79%         |
+| Length Ratio                       | 1.04             | 0.89           |
 
 The high BERTScore for GGUF (vs source) is largely influenced by copy-like outputs, which artificially increase semantic similarity without improving simplification quality.
 
@@ -57,15 +57,15 @@ Interpretation:
 
 Use this quick guide when reading evaluation numbers.
 
-| Metric | What it measures | Better direction | Practical target for this project |
-|--------|------------------|------------------|-----------------------------------|
-| SARI | Quality of edit operations (add/delete/keep) against references | Higher is usually better | Prefer higher, but validate with copy rate + manual checks |
-| FKGL | Reading grade level (text complexity) | Lower is better | Predicted FKGL should be lower than source |
-| FRE | Reading ease score | Higher is better | Predicted FRE should be higher than source |
-| BERTScore (vs Reference) | Semantic similarity to reference simplifications | Higher is better | Moderate-to-high is good; low can still be acceptable with diverse paraphrases |
-| BERTScore (vs Source) | Meaning preservation from original input | Higher is better | Higher is preferred, but not at the cost of copying |
-| Length Ratio | Output length vs input length | Mid-range is best | Around 0.7-0.9 is often ideal for simplification |
-| Copy Rate | Near-copy percentage from source | Lower is better | As low as possible; typically < 40% |
+| Metric                   | What it measures                                                | Better direction         | Practical target for this project                                              |
+| ------------------------ | --------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------ |
+| SARI                     | Quality of edit operations (add/delete/keep) against references | Higher is usually better | Prefer higher, but validate with copy rate + manual checks                     |
+| FKGL                     | Reading grade level (text complexity)                           | Lower is better          | Predicted FKGL should be lower than source                                     |
+| FRE                      | Reading ease score                                              | Higher is better         | Predicted FRE should be higher than source                                     |
+| BERTScore (vs Reference) | Semantic similarity to reference simplifications                | Higher is better         | Moderate-to-high is good; low can still be acceptable with diverse paraphrases |
+| BERTScore (vs Source)    | Meaning preservation from original input                        | Higher is better         | Higher is preferred, but not at the cost of copying                            |
+| Length Ratio             | Output length vs input length                                   | Mid-range is best        | Around 0.7-0.9 is often ideal for simplification                               |
+| Copy Rate                | Near-copy percentage from source                                | Lower is better          | As low as possible; typically < 40%                                            |
 
 Important notes:
 
@@ -99,12 +99,12 @@ No single metric is sufficient on its own.
 
 ## Project Files
 
-| File | Purpose |
-|------|---------|
-| `runtime/streamlit_app.py` | Main Streamlit web app (Entry Point) |
-| `runtime/simplify.py` | Core simplification logic with LoRA adapter |
-| `translate.py` | IndicTrans2 translation wrapper |
-| `requirements.txt` | Python dependencies |
+| File                       | Purpose                                     |
+| -------------------------- | ------------------------------------------- |
+| `runtime/streamlit_app.py` | Main Streamlit web app (Entry Point)        |
+| `runtime/simplify.py`      | Core simplification logic with LoRA adapter |
+| `translate.py`             | IndicTrans2 translation wrapper             |
+| `requirements.txt`         | Python dependencies                         |
 
 ## First-Time Setup
 
@@ -213,6 +213,7 @@ Based on observed outputs and runtime behavior in this repository:
 ## RTX 3050 6GB Notes
 
 The simplifier loads with a memory-efficient strategy:
+
 - Tries full CUDA runtime first.
 - Falls back to automatic VRAM offload if memory is tight.
 - Final fallback to CPU if 4-bit runtime fails.
@@ -225,6 +226,7 @@ Note: a separate full-merged checkpoint was tested experimentally, but is not re
 - With short VRAM GPUs (for example 6GB), this model runs mostly with CPU/offload and can become very slow.
 
 <!-- GGUF_SARI_START -->
+
 ## GGUF SARI Evaluation
 
 - Dataset: WikiLarge test (191 samples)
@@ -234,6 +236,7 @@ Note: a separate full-merged checkpoint was tested experimentally, but is not re
 Generated by `evaluate_sari_gguf.py`.
 
 The significantly higher SARI score in the GGUF pipeline is misleading, as a large number of outputs remain copy-like. This highlights a known limitation of SARI, where superficial lexical edits can inflate scores without improving actual readability or usefulness.
+
 <!-- GGUF_SARI_END -->
 
 ### Metric Caveat: Why Higher SARI Can Still Look Worse
