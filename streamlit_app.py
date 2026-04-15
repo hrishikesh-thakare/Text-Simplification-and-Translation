@@ -1,5 +1,6 @@
 import streamlit as st
 import torch
+import time
 
 from simplify import TextSimplifier
 from translate import IndicTranslator
@@ -140,9 +141,66 @@ h3 {{
 # ─────────────────────────────────────────────
 # Session state
 # ─────────────────────────────────────────────
-for key in ("input_text", "simplified_text", "translated_text"):
+for key in (
+    "input_text",
+    "simplified_text",
+    "translated_text",
+    "simp_times",
+    "trans_times",
+):
     if key not in st.session_state:
-        st.session_state[key] = ""
+        st.session_state[key] = [] if key.endswith("_times") else ""
+
+
+def _avg(values):
+    return sum(values) / len(values) if values else None
+
+
+def _sync_cuda():
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+
+def _fmt_sec(seconds):
+    return f"{seconds:.1f}s" if seconds < 60 else f"{seconds/60:.1f}m"
+
+
+def _eta_bounds(estimate, samples):
+    if samples <= 0:
+        lo_mul, hi_mul = 0.75, 1.80
+    elif samples < 3:
+        lo_mul, hi_mul = 0.80, 1.50
+    elif samples < 8:
+        lo_mul, hi_mul = 0.85, 1.35
+    else:
+        lo_mul, hi_mul = 0.90, 1.20
+    return estimate * lo_mul, estimate * hi_mul
+
+
+def _fmt_range(lo, hi):
+    return f"{_fmt_sec(lo)}-{_fmt_sec(hi)}"
+
+
+def _estimate_eta(input_text):
+    # Blend learned timings with a conservative length-based heuristic.
+    words = len((input_text or "").strip().split())
+    simp_avg = _avg(st.session_state.simp_times)
+    trans_avg = _avg(st.session_state.trans_times)
+
+    simp_fallback = min(240.0, 25.0 + (0.45 * words))
+    trans_fallback = min(180.0, 18.0 + (0.30 * words))
+
+    simp_eta = max(simp_avg, 0.60 * simp_fallback) if simp_avg is not None else simp_fallback
+    trans_eta = max(trans_avg, 0.60 * trans_fallback) if trans_avg is not None else trans_fallback
+
+    simp_lo, simp_hi = _eta_bounds(simp_eta, len(st.session_state.simp_times))
+    trans_lo, trans_hi = _eta_bounds(trans_eta, len(st.session_state.trans_times))
+    total_lo, total_hi = simp_lo + trans_lo, simp_hi + trans_hi
+
+    return (simp_eta, simp_lo, simp_hi), (trans_eta, trans_lo, trans_hi), (total_lo, total_hi)
 
 # ─────────────────────────────────────────────
 # Model loading
@@ -235,19 +293,39 @@ if run:
     if not st.session_state.input_text.strip():
         st.warning("Please enter some text first.")
     else:
+        simp_eta, trans_eta, total_eta = _estimate_eta(st.session_state.input_text)
+        simp_mid, simp_lo, simp_hi = simp_eta
+        trans_mid, trans_lo, trans_hi = trans_eta
+        total_lo, total_hi = total_eta
         simp_slot.markdown(
-            f"<div class='out-box' style='height:{OUT_BOX_H}px;overflow-y:auto;color:#64748b;font-style:italic;'>Simplifying English…</div>",
+            f"<div class='out-box' style='height:{OUT_BOX_H}px;overflow-y:auto;color:#64748b;font-style:italic;'>Simplifying English… ETA ~{_fmt_range(simp_lo, simp_hi)}</div>",
             unsafe_allow_html=True,
         )
+
+        _sync_cuda()
+        simp_start = time.perf_counter()
         st.session_state.simplified_text = simplifier.simplify_text(
             st.session_state.input_text.strip()
         )
+        _sync_cuda()
+        simp_elapsed = time.perf_counter() - simp_start
+
         trans_slot.markdown(
-            f"<div class='out-box' style='height:{OUT_BOX_H}px;overflow-y:auto;color:#64748b;font-style:italic;'>Translating to {target_language}…</div>",
+            f"<div class='out-box' style='height:{OUT_BOX_H}px;overflow-y:auto;color:#64748b;font-style:italic;'>Translating to {target_language}… ETA ~{_fmt_range(trans_lo, trans_hi)}</div>",
             unsafe_allow_html=True,
         )
+
+        _sync_cuda()
+        trans_start = time.perf_counter()
         st.session_state.translated_text = translator.translate(
             st.session_state.simplified_text, target_language
         )
+        _sync_cuda()
+        trans_elapsed = time.perf_counter() - trans_start
+
+        # Keep a short history so ETA adapts without drifting too much.
+        st.session_state.simp_times = (st.session_state.simp_times + [simp_elapsed])[-20:]
+        st.session_state.trans_times = (st.session_state.trans_times + [trans_elapsed])[-20:]
+
         st.session_state.last_used_language = target_language
         st.rerun()

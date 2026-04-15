@@ -8,7 +8,7 @@ import torch
 import gradio as gr
 
 from simplify import TextSimplifier
-from translate import HindiTranslator
+from translate import IndicTranslator
 
 
 # Default to online-first so first-time setup works after cloning.
@@ -301,8 +301,59 @@ class WebPipeline:
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.simplifier = TextSimplifier(device=self.device)
-        self.translator = HindiTranslator(device=self.device)
+        self.translator = IndicTranslator(device=self.device)
         self.languages = self.translator.get_supported_languages()
+        self.simp_times = []
+        self.trans_times = []
+
+    @staticmethod
+    def _avg(values):
+        return sum(values) / len(values) if values else None
+
+    @staticmethod
+    def _sync_cuda():
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.synchronize()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _fmt_sec(seconds):
+        return f"{seconds:.1f}s" if seconds < 60 else f"{seconds/60:.1f}m"
+
+    @staticmethod
+    def _eta_bounds(estimate, samples):
+        if samples <= 0:
+            lo_mul, hi_mul = 0.75, 1.80
+        elif samples < 3:
+            lo_mul, hi_mul = 0.80, 1.50
+        elif samples < 8:
+            lo_mul, hi_mul = 0.85, 1.35
+        else:
+            lo_mul, hi_mul = 0.90, 1.20
+        return estimate * lo_mul, estimate * hi_mul
+
+    def _fmt_range(self, lo, hi):
+        return f"{self._fmt_sec(lo)}-{self._fmt_sec(hi)}"
+
+    def estimate_eta(self, text: str):
+        words = len((text or "").strip().split())
+        simp_fallback = min(240.0, 25.0 + (0.45 * words))
+        trans_fallback = min(180.0, 18.0 + (0.30 * words))
+
+        simp_avg = self._avg(self.simp_times)
+        trans_avg = self._avg(self.trans_times)
+
+        simp = max(simp_avg, 0.60 * simp_fallback) if simp_avg is not None else simp_fallback
+        trans = max(trans_avg, 0.60 * trans_fallback) if trans_avg is not None else trans_fallback
+        simp_lo, simp_hi = self._eta_bounds(simp, len(self.simp_times))
+        trans_lo, trans_hi = self._eta_bounds(trans, len(self.trans_times))
+        return (simp, simp_lo, simp_hi), (trans, trans_lo, trans_hi), (simp_lo + trans_lo, simp_hi + trans_hi)
+
+    def remember_run(self, simp_elapsed: float, trans_elapsed: float):
+        self.simp_times = (self.simp_times + [simp_elapsed])[-20:]
+        self.trans_times = (self.trans_times + [trans_elapsed])[-20:]
 
     def get_runtime_info_str(self):
         info = self.simplifier.get_runtime_info()
@@ -342,11 +393,13 @@ def _step_html(input_state="waiting", simplify_state="waiting", translate_state=
     </div>"""
 
 
-def _card_header(title, status="waiting", time_str=None):
+def _card_header(title, status="waiting", time_str=None, eta_str=None):
     labels = {"waiting": "Waiting", "active": "Processing...", "done": "Completed"}
     status_text = labels[status]
     if status == "done" and time_str:
         status_text = f"Completed in {time_str}"
+    elif status == "active" and eta_str:
+        status_text = f"Processing... ETA ~{eta_str}"
         
     return f"""<div class="card-header">
         <span class="card-title">{title}</span>
@@ -371,17 +424,23 @@ def process_text(text: str, target_language: str):
         )
         return
 
+    simp_eta, trans_eta, _ = pipeline.estimate_eta(text)
+    _, simp_lo, simp_hi = simp_eta
+    _, trans_lo, trans_hi = trans_eta
+
     # ── Step 1: Input received, simplification starting ──
     yield (
         _step_html("done", "active", "waiting"),
-        _card_header("Simplified English", "active"),
+        _card_header("Simplified English", "active", eta_str=pipeline._fmt_range(simp_lo, simp_hi)),
         "",
         _card_header(f"{target_language} Translation", "waiting"),
         "",
     )
 
+    pipeline._sync_cuda()
     t0 = time.time()
     simplified = pipeline.simplifier.simplify_text(text)
+    pipeline._sync_cuda()
     t1 = time.time()
     simp_time = f"{(t1 - t0):.1f}s"
 
@@ -390,16 +449,24 @@ def process_text(text: str, target_language: str):
         _step_html("done", "done", "active"),
         _card_header("Simplified English", "done", time_str=simp_time),
         simplified,
-        _card_header(f"{target_language} Translation", "active"),
+        _card_header(
+            f"{target_language} Translation",
+            "active",
+            eta_str=pipeline._fmt_range(trans_lo, trans_hi),
+        ),
         "",
     )
 
+    pipeline._sync_cuda()
     t2 = time.time()
     translated = pipeline.translator.translate(simplified, target_language=target_language)
+    pipeline._sync_cuda()
     t3 = time.time()
     trans_time = f"{(t3 - t2):.1f}s"
 
     # ── Step 3: All done ──
+    pipeline.remember_run((t1 - t0), (t3 - t2))
+
     yield (
         _step_html("done", "done", "done"),
         _card_header("Simplified English", "done", time_str=simp_time),
@@ -478,6 +545,27 @@ with gr.Blocks(
         border_color_primary="#2a2a2a",
     ),
 ) as app:
+
+    # ── PWA Setup (hidden) ──
+    gr.HTML("""
+    <script>
+    // Register service worker for offline + home screen
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js').then((reg) => {
+        console.log('Service Worker registered');
+      }).catch((err) => {
+        console.log('Service Worker registration failed:', err);
+      });
+    }
+    // Link manifest for PWA install prompt
+    if (!document.querySelector('link[rel="manifest"]')) {
+      const link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = '/manifest.json';
+      document.head.appendChild(link);
+    }
+    </script>
+    """)
 
     # ── Header ──
     gr.Markdown("# Text Simplification + Indic Translation", elem_id="app-title")
@@ -590,4 +678,45 @@ with gr.Blocks(
 
 
 if __name__ == "__main__":
+    # Mount static files for PWA
+    import pathlib
+    from starlette.responses import FileResponse
+    
+    static_dir = pathlib.Path(__file__).parent
+    
+    try:
+        # Add route for manifest.json
+        @app.app.get("/manifest.json")
+        async def get_manifest():
+            manifest_path = static_dir / "manifest.json"
+            if manifest_path.exists():
+                return FileResponse(str(manifest_path), media_type="application/json")
+            # Fallback inline manifest
+            return {
+                "name": "Text Simplification + Indic Translation",
+                "short_name": "Text Simplifier",
+                "start_url": "/",
+                "display": "standalone",
+                "background_color": "#0f0f0f",
+                "theme_color": "#f97316",
+                "icons": [
+                    {
+                        "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%23f97316' width='192' height='192'/><text x='96' y='120' font-size='80' font-weight='bold' fill='white' text-anchor='middle' font-family='Inter'>S→I</text></svg>",
+                        "sizes": "192x192",
+                        "type": "image/svg+xml",
+                        "purpose": "any"
+                    }
+                ]
+            }
+        
+        # Add route for service-worker.js
+        @app.app.get("/service-worker.js")
+        async def get_service_worker():
+            sw_path = static_dir / "service-worker.js"
+            if sw_path.exists():
+                return FileResponse(str(sw_path), media_type="application/javascript")
+            return {"error": "Service worker not found"}
+    except Exception as e:
+        print(f"Warning: Could not mount PWA routes: {e}")
+    
     app.launch(server_name="127.0.0.1", server_port=7860)
