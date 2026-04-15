@@ -38,12 +38,15 @@ The full merged model path is intentionally excluded from this comparison due to
 
 | Metric                             | Original Runtime | Quantized GGUF |
 | ---------------------------------- | ---------------- | -------------- |
+| SARI                               | 23.46            | 46.09          |
 | FKGL (predicted, lower is simpler) | 10.38            | 10.71          |
 | FRE (predicted, higher is easier)  | 54.53            | 48.92          |
 | BERTScore F1 vs Reference          | 0.2599           | 0.6520         |
 | BERTScore F1 vs Source             | 0.3097           | 0.8915         |
 | Copy Rate (>0.95 similarity)       | 0.00%            | 50.79%         |
 | Length Ratio                       | 1.04             | 0.89           |
+
+SARI is shown in this top-level comparison for quick scanning and is also repeated in the dedicated GGUF section below for run-specific context.
 
 The high BERTScore for GGUF (vs source) is largely influenced by copy-like outputs, which artificially increase semantic similarity without improving simplification quality.
 
