@@ -1,6 +1,10 @@
 import streamlit as st
 import torch
 import time
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from simplify import TextSimplifier
 from translate import IndicTranslator

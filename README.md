@@ -2,6 +2,8 @@
 
 This project takes **complex English text**, uses a local language model to break it down into simpler sentences to improve readability, and then translates the simplified output into a variety of **Indic languages**.
 
+Goal: Simplify complex English text into easier, readable form while preserving meaning, and translate it into Indic languages.
+
 ## What This Project Is
 
 The app runs a sophisticated 2-step NLP pipeline:
@@ -11,67 +13,81 @@ The app runs a sophisticated 2-step NLP pipeline:
 
 ## Evaluation Results
 
-All metrics evaluated on `wikilarge_test.csv` (191 sentences) using an anti-cheat evaluation pipeline with sequence-similarity filtering.
+All metrics are evaluated on `wikilarge_test.csv` (191 sentences). The main production recommendation is still the original runtime path (base + LoRA at runtime), with GGUF used primarily for faster deployment on low-VRAM machines.
 
-### SARI (Simplification Quality)
+### Runtime Baseline (Original Path)
 
-| Metric | Score |
+| Metric | Value |
 |--------|-------|
-| **SARI** | `23.46` |
+| SARI | `23.46` |
+| FKGL (Source -> Predicted) | `11.88 -> 10.38` |
+| FRE (Source -> Predicted) | `44.71 -> 54.53` |
+| BERTScore F1 (vs Reference) | `0.2599` |
+| BERTScore F1 (vs Source) | `0.3097` |
+| Copy Rate (>0.95 similarity) | `0.00%` |
+| Length Ratio | `1.04` |
 
-Evaluated with strict anti-cheat filtering — outputs with sequence similarity > 0.95 vs. source are excluded to prevent SARI inflation from copying.
+### Runtime vs Quantized GGUF
 
----
+The following metrics are computed for the two practical paths used on this machine:
 
-### FKGL (Readability — Flesch-Kincaid Grade Level)
+- Original runtime path (`streamlit_app.py` + `simplify.py`)
+- Quantized GGUF path (`gguf/web_app_gguf.py`)
 
-| Text | Grade Level |
-|------|-------------|
-| Source (complex input) | `11.88` |
-| Predicted (simplified output) | `10.38` |
+The full merged model path is intentionally excluded from this comparison due to high latency and poor practicality on 6GB-class GPUs.
 
-Lower grade level = easier to read. The model successfully reduces reading complexity by **1.5 grade levels**.
+| Metric | Original Runtime | Quantized GGUF |
+|--------|------------------|----------------|
+| FKGL (predicted, lower is simpler) | 10.38 | 10.71 |
+| FRE (predicted, higher is easier) | 54.53 | 48.92 |
+| BERTScore F1 vs Reference | 0.2599 | 0.6520 |
+| BERTScore F1 vs Source | 0.3097 | 0.8915 |
+| Copy Rate (>0.95 similarity) | 0.00% | 50.79% |
+| Length Ratio | 1.04 | 0.89 |
 
----
+The high BERTScore for GGUF (vs source) is largely influenced by copy-like outputs, which artificially increase semantic similarity without improving simplification quality.
 
-### BERTScore (Semantic Meaning Preservation)
+Interpretation:
 
-| Comparison | F1 Score |
-|------------|----------|
-| Prediction vs. Reference | `0.2599` |
-| Prediction vs. Source | `0.3097` |
+- Runtime path remains cleaner in anti-copy behavior and is the recommended quality-first path.
+- GGUF is faster, but its high copy-like rate reduces true simplification quality, so metric scores must be interpreted carefully.
+- Always combine automatic metrics with manual inspection.
 
-BERTScore measures semantic similarity using `roberta-large` embeddings. Values are rescaled with baseline. The model rewrites content in new phrasing rather than direct copying.
+### Metric Guide: Meaning, Direction, and Practical Targets
 
----
+Use this quick guide when reading evaluation numbers.
 
-### Copy Rate & Length Ratio (Anti-Cheat Diagnostics)
+| Metric | What it measures | Better direction | Practical target for this project |
+|--------|------------------|------------------|-----------------------------------|
+| SARI | Quality of edit operations (add/delete/keep) against references | Higher is usually better | Prefer higher, but validate with copy rate + manual checks |
+| FKGL | Reading grade level (text complexity) | Lower is better | Predicted FKGL should be lower than source |
+| FRE | Reading ease score | Higher is better | Predicted FRE should be higher than source |
+| BERTScore (vs Reference) | Semantic similarity to reference simplifications | Higher is better | Moderate-to-high is good; low can still be acceptable with diverse paraphrases |
+| BERTScore (vs Source) | Meaning preservation from original input | Higher is better | Higher is preferred, but not at the cost of copying |
+| Length Ratio | Output length vs input length | Mid-range is best | Around 0.7-0.9 is often ideal for simplification |
+| Copy Rate | Near-copy percentage from source | Lower is better | As low as possible; typically < 40% |
 
-| Metric | Value | Target | Status |
-|--------|-------|--------|--------|
-| Copy Rate | `0.00%` | < 40% | ✅ No copying |
-| Length Ratio | `1.04` | 0.7–0.9 | ⚠️ Slightly longer |
+Important notes:
 
-- **Copy Rate 0%** confirms all SARI scores are genuine — no metric inflation from passthrough.
-- **Length Ratio 1.04** means the model lightly expands outputs — it paraphrases rather than deletes, which suppresses SARI (SARI rewards deletion of complex words).
+- There is no single universal "optimal" score for simplification.
+- Best results come from balancing readability improvement (FKGL/FRE), meaning retention (BERTScore), and anti-copy behavior (Copy Rate).
+- A model can score high on one metric and still be poor in practice, so always combine metrics with manual inspection.
 
----
+## Key Insight
 
-### Summary
+Effective text simplification requires balancing three factors:
 
-| Metric | Score | Notes |
-|--------|-------|-------|
-| SARI | 23.46 | Genuine score, no inflation |
-| FKGL Reduction | −1.50 grades | Complexity is reduced |
-| BERTScore (vs Ref) | 0.2599 | Different phrasing from reference |
-| BERTScore (vs Src) | 0.3097 | Meaning partially preserved |
-| Copy Rate | 0.00% | ✅ Clean |
-| Length Ratio | 1.04 | Model expands slightly |
+- Readability (FKGL, FRE)
+- Meaning preservation (BERTScore)
+- True simplification behavior (SARI + low copy rate)
+
+No single metric is sufficient on its own.
 
 ## Tech Stack
 
 - **Language:** Python 3
 - **UI:** Streamlit (`streamlit_app.py`)
+- **UI:** Streamlit (`runtime/streamlit_app.py`)
 - **Core Libraries:**
   - `streamlit`, `transformers`, `torch`, `peft`
   - `IndicTransToolkit`
@@ -85,8 +101,8 @@ BERTScore measures semantic similarity using `roberta-large` embeddings. Values 
 
 | File | Purpose |
 |------|---------|
-| `streamlit_app.py` | Main Streamlit web app (Entry Point) |
-| `simplify.py` | Core simplification logic with LoRA adapter |
+| `runtime/streamlit_app.py` | Main Streamlit web app (Entry Point) |
+| `runtime/simplify.py` | Core simplification logic with LoRA adapter |
 | `translate.py` | IndicTrans2 translation wrapper |
 | `requirements.txt` | Python dependencies |
 
@@ -121,6 +137,70 @@ python -m streamlit run streamlit_app.py
 
 Then open **`http://localhost:8501`** in your browser.
 
+If running from project root, use:
+
+```powershell
+python -m streamlit run runtime/streamlit_app.py
+```
+
+## Separate GGUF Website (Merged Quantized Model)
+
+This project now includes a separate Gradio website that uses a merged quantized GGUF simplifier model, so it does not rely on loading base model + LoRA adapter at runtime.
+
+### Default GGUF file discovery
+
+The GGUF app checks these paths in order:
+
+1. `SIMPLIFIER_GGUF_PATH` environment variable
+2. `Text-Simplification-and-Translation/simplifier-8b-q4.gguf`
+3. `../simplifier-8b-q4.gguf` (workspace root)
+4. `Text-Simplification-and-Translation/model/simplifier-8b-q4.gguf`
+
+### Run GGUF website
+
+```powershell
+python web_app_gguf.py
+```
+
+Then open **`http://127.0.0.1:7861`**.
+
+If running from project root, use:
+
+```powershell
+python gguf/web_app_gguf.py
+```
+
+Optional explicit path setup:
+
+```powershell
+$env:SIMPLIFIER_GGUF_PATH="C:\Users\hrish\Desktop\sb\simplifier-8b-q4.gguf"
+python web_app_gguf.py
+```
+
+### Practical GPU Guidance (Important)
+
+Most users do not have high-end GPUs. For generic GPUs (for example RTX 3060 6GB), use the GGUF website for normal usage.
+
+- Recommended for everyday use on 6GB-class GPUs: `web_app_gguf.py`
+- Keep `full/web_app_merged.py` for testing/experiments only (full merged model can be very slow on low VRAM)
+
+Typical wait times on 6GB VRAM hardware:
+
+- GGUF website (`gguf/web_app_gguf.py`): usually 10-90 seconds per request
+- Original LoRA runtime (`runtime/streamlit_app.py`): usually 20-120 seconds per request
+
+Suggested max wait before retrying:
+
+- GGUF: 90 seconds
+- Original LoRA runtime: 2 minutes
+
+## Final Recommendation For This Project
+
+Based on observed outputs and runtime behavior in this repository:
+
+- The quantized GGUF path is faster, but simplification quality is not consistently as good as the runtime base+adapter pipeline.
+- Therefore, the best overall approach for this project is the original runtime path (base model + `model/simplifier-4090` adapter loaded at runtime), balancing quality and usability on consumer hardware.
+
 **Supported Output Languages:** Hindi, Bengali, Gujarati, Kannada, Malayalam, Marathi, Odia, Punjabi, Tamil, Telugu, Urdu.
 
 ## What Happens on First Run
@@ -138,3 +218,32 @@ The simplifier loads with a memory-efficient strategy:
 - Final fallback to CPU if 4-bit runtime fails.
 
 This ensures the pipeline runs reliably without crashing, even on 6GB VRAM cards.
+
+Note: a separate full-merged checkpoint was tested experimentally, but is not recommended for typical 6GB GPUs due to high latency.
+
+- `model/simplifier-merged` size on disk: **~14.97 GB**
+- With short VRAM GPUs (for example 6GB), this model runs mostly with CPU/offload and can become very slow.
+
+<!-- GGUF_SARI_START -->
+## GGUF SARI Evaluation
+
+- Dataset: WikiLarge test (191 samples)
+- GGUF SARI: **46.09**
+- Copy-like outputs (>0.95 similarity): 97
+
+Generated by `evaluate_sari_gguf.py`.
+
+The significantly higher SARI score in the GGUF pipeline is misleading, as a large number of outputs remain copy-like. This highlights a known limitation of SARI, where superficial lexical edits can inflate scores without improving actual readability or usefulness.
+<!-- GGUF_SARI_END -->
+
+### Metric Caveat: Why Higher SARI Can Still Look Worse
+
+A higher SARI score does not always mean better real-world simplification quality.
+
+In our GGUF run, SARI improved, but many outputs were still copy-like or dropped important details. This happens because SARI rewards lexical edits against a reference, not full semantic faithfulness or practical usefulness for users.
+
+Practical takeaway:
+
+- Use SARI as one signal, not the only quality gate.
+- Also track meaning preservation, copy rate, readability, and human judgment.
+- Prefer outputs that are both simpler and faithful, even if SARI is slightly lower.

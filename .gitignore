@@ -15,6 +15,18 @@ dist/
 *.egg-info/
 .eggs/
 
+# PyInstaller / desktop app build artifacts
+*.spec
+*.manifest
+*.pdb
+*.local
+*.exe
+release/
+package/
+*.msi
+*.msix
+*.appx
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
@@ -44,17 +56,24 @@ Thumbs.db
 # Model/runtime caches and local artifacts
 unsloth_compiled_cache/
 *.log
+.streamlit/
 
 # Training outputs (if generated inside this repo)
 outputs/
 checkpoints/
 checkpoint-*/
+# Local datasets and evaluation CSVs
+data/*.csv
+outputs/*.csv
+training/*.csv
 
 # Large model artifacts (keep explicit files only when intended)
 *.safetensors
 *.bin
 *.pt
 *.pth
+*.gguf
+model/simplifier-merged/
 
 # Keep bundled adapter files needed by runtime
 !model/
