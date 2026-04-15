@@ -99,6 +99,26 @@ class IndicTranslator:
     def get_supported_languages(self):
         return list(self.LANGUAGE_MAP.keys())
 
+    def _ensure_lang_tags(self, batch, tgt_lang: str):
+        tagged = []
+        valid_tgts = set(self.LANGUAGE_MAP.values())
+
+        for item in batch:
+            text = str(item)
+            parts = text.split(" ", 2)
+            has_tags = (
+                len(parts) >= 3
+                and parts[0] == "eng_Latn"
+                and parts[1] in valid_tgts
+            )
+
+            if has_tags:
+                tagged.append(text)
+            else:
+                tagged.append(f"eng_Latn {tgt_lang} {text}")
+
+        return tagged
+
     def translate(self, simplified_text: str, target_language: str = "Hindi") -> str:
         """Translate simplified English text to selected Indic language."""
         tgt_lang = self.LANGUAGE_MAP.get(target_language, "hin_Deva")
@@ -108,6 +128,10 @@ class IndicTranslator:
             src_lang="eng_Latn",
             tgt_lang=tgt_lang,
         )
+
+        # Some packaged/offline setups may bypass IndicTransToolkit preprocessing;
+        # enforce source/target tags expected by IndicTrans tokenizer.
+        batch = self._ensure_lang_tags(batch, tgt_lang)
 
         inputs = self.tokenizer(
             batch,

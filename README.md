@@ -86,7 +86,6 @@ No single metric is sufficient on its own.
 ## Tech Stack
 
 - **Language:** Python 3
-- **UI:** Streamlit (`streamlit_app.py`)
 - **UI:** Streamlit (`runtime/streamlit_app.py`)
 - **Core Libraries:**
   - `streamlit`, `transformers`, `torch`, `peft`
@@ -101,6 +100,7 @@ No single metric is sufficient on its own.
 
 | File                       | Purpose                                     |
 | -------------------------- | ------------------------------------------- |
+| `app.py`                  | Runtime-only desktop launcher              |
 | `runtime/streamlit_app.py` | Main Streamlit web app (Entry Point)        |
 | `runtime/simplify.py`      | Core simplification logic with LoRA adapter |
 | `translate.py`             | IndicTrans2 translation wrapper             |
@@ -131,17 +131,52 @@ Paste your Hugging Face token when prompted. Ensure you have access to the base 
 
 ## How To Run
 
+For the runtime-only app launcher:
+
 ```powershell
-python -m streamlit run streamlit_app.py
+python app.py
 ```
 
-Then open **`http://localhost:8501`** in your browser.
+This starts the local Streamlit server for the runtime path and opens the browser automatically.
 
-If running from project root, use:
+### Build a Windows exe
+
+If you want a local Windows launcher, install PyInstaller in the active environment and run:
+
+```powershell
+.\build_runtime_launcher.ps1
+```
+
+That creates `dist\TextSimplifierRuntime\TextSimplifierRuntime.exe` for the runtime-only path.
+
+### Run the packaged app
+
+After building, start the packaged launcher:
+
+```powershell
+dist\TextSimplifierRuntime\TextSimplifierRuntime.exe
+```
+
+Expected behavior:
+
+- A local Streamlit server is started on `http://127.0.0.1:8501`.
+- Your browser opens automatically.
+- A console window appears because the launcher hosts the local runtime process.
+
+This is normal for the current Streamlit-based desktop launcher architecture.
+
+Offline note for packaged app:
+
+- The packaged app works offline once required model files are already available locally (inside the packaged folder and/or local Hugging Face cache).
+- On a fresh machine without local model files, an initial online model fetch may be required before fully offline use.
+
+For direct development mode:
 
 ```powershell
 python -m streamlit run runtime/streamlit_app.py
 ```
+
+Then open **`http://localhost:8501`** in your browser.
 
 ## Separate GGUF Website (Merged Quantized Model)
 
@@ -205,10 +240,10 @@ Based on observed outputs and runtime behavior in this repository:
 
 ## What Happens on First Run
 
-- Base models are downloaded from Hugging Face (can take time).
+- If required model files are missing locally, base models are downloaded from Hugging Face (can take time).
 - Local LoRA adapter is loaded from `model/simplifier-4090`.
-- Internet connection is required for the initial fetch.
-- Subsequent runs load from local HuggingFace cache — much faster.
+- Internet is required only when local model files are not already present.
+- After model files are available locally, the packaged app can run offline.
 
 ## RTX 3050 6GB Notes
 

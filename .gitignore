@@ -26,6 +26,7 @@ package/
 *.msi
 *.msix
 *.appx
+!launcher.spec
 
 # Installer logs
 pip-log.txt
@@ -74,6 +75,7 @@ training/*.csv
 *.pth
 *.gguf
 model/simplifier-merged/
+model/indictrans2-en-indic-dist-200M/
 
 # Keep bundled adapter files needed by runtime
 !model/
