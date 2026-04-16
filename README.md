@@ -101,14 +101,14 @@ No single metric is sufficient on its own.
 
 ## Project Files
 
-| File                       | Purpose                                     |
-| -------------------------- | ------------------------------------------- |
-| `app.py`                  | Runtime-only desktop launcher              |
-| `runtime/streamlit_app.py` | Main Streamlit web app (Entry Point)        |
-| `runtime/simplify.py`      | Core simplification logic with LoRA adapter |
-| `translate.py`             | IndicTrans2 translation wrapper             |
-| `requirements.txt`         | Python dependencies                         |
-| `model/simplifier-4090/`    | Exported trained LoRA adapter used by runtime |
+| File                       | Purpose                                       |
+| -------------------------- | --------------------------------------------- |
+| `app.py`                   | Runtime-only desktop launcher                 |
+| `runtime/streamlit_app.py` | Main Streamlit web app (Entry Point)          |
+| `runtime/simplify.py`      | Core simplification logic with LoRA adapter   |
+| `translate.py`             | IndicTrans2 translation wrapper               |
+| `requirements.txt`         | Python dependencies                           |
+| `model/simplifier-4090/`   | Exported trained LoRA adapter used by runtime |
 
 ## First-Time Setup
 
